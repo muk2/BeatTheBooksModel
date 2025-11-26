@@ -1,41 +1,160 @@
-import httpx
-import csv
+import time
+import base64
+import pandas as pd
+import numpy as np
 from io import StringIO
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
-BASE_URL = "https://www.pro-football-reference.com/teams/{team}/{year}/gamelog.csv"
+def flatten_pfr_columns(df: pd.DataFrame):
+    """Flatten MultiIndex columns from PFR exports cleanly."""
+    new_cols = []
+
+    for col in df.columns:
+        if isinstance(col, tuple):
+            lvl0, lvl1 = col
+
+            # Prefer lvl1 if it is meaningful
+            if isinstance(lvl1, str) and lvl1 and not lvl1.startswith("Unnamed"):
+                new_cols.append(lvl1.strip())
+                continue
+
+            # Else use lvl0 if meaningful
+            if isinstance(lvl0, str) and lvl0 and not lvl0.startswith("Unnamed"):
+                new_cols.append(lvl0.strip())
+                continue
+
+            # Fallback: return whichever is non-empty
+            new_cols.append(lvl1.strip() if lvl1 else lvl0.strip())
+        else:
+            new_cols.append(col)
+
+    df.columns = new_cols
+    return df
+
+def clean_value(v):
+    """Convert pandas/numpy types -> pure Python, handle NaN."""
+    if isinstance(v, pd.Series):
+        if len(v) == 0:
+            return None
+        v = v.iloc[0]
+
+    # NAN → None
+    try:
+        if pd.isna(v):
+            return None
+    except:
+        pass
+
+    # numpy → python
+    if isinstance(v, (np.generic,)):
+        return v.item()
+
+    return v
+
+def parse_xlsx_to_games(excel_bytes: bytes, team: str):
+    # Convert bytes → string
+    html_str = excel_bytes.decode("utf-8")
+
+    # Use StringIO to avoid FutureWarning
+    tables = pd.read_html(StringIO(html_str))
+
+    df = tables[0]  # first table is schedule
+    print(df.head())
+    # Flatten MultiIndex columns
+    if isinstance(df.columns, pd.MultiIndex):
+        df = flatten_pfr_columns(df)
+
+    print("CLEANED COLUMNS:", df.columns)
+
+    games = []
+    for _, row in df.iterrows():
+        game = {
+            "team": team.upper(),
+            "week": int(row.get("Week", row.get("Week_", None))) if not pd.isna(row.get("Week", row.get("Week_", None))) else None,
+            "day": row.get("Day", row.get("Day_", None)),
+            "date": row.get("Date", row.get("Date_", None)),
+            "opponent": row.get("Opp", row.get("Opp_", None)),
+            "location": "",  # '@' marks away if needed
+            "team_score": row.get("Tm", row.get("Tm_", None)),
+            "opp_score": row.get("Opp.1", row.get("Opp.1_", None)),
+            "tot_yards_for": row.get("TotYd", row.get("TotYd_", None)),
+            "tot_yards_against": row.get("TotYd.1", row.get("TotYd.1_", None)),
+            "pass_yards": row.get("PassY", row.get("PassY_", None)),
+            "rush_yards": row.get("RushY", row.get("RushY_", None)),
+            "turnovers": row.get("TO", row.get("TO_", None)),
+        }
+        cleaned_game = {k: clean_value(v) for k, v in game.items()}
+        games.append(cleaned_game)
+
+    return games
+
+
+def extract_excel_bytes_from_dlink(driver):
+    """
+    After clicking 'Get as Excel Workbook', PFR injects <a id="dlink">
+    containing base64 Excel data. Extract the bytes.
+    """
+
+    
+    dlink = driver.find_element(By.ID, "dlink")
+    href = dlink.get_attribute("href")
+
+    if not href or not href.startswith("data:"):
+        raise Exception("dlink href did not populate — PFR JS may not have executed.")
+
+    header, b64data = href.split(",", 1)
+    print("DLINK HEADER:", header)
+    excel_bytes = base64.b64decode(b64data)
+
+    return excel_bytes
 
 
 async def download_team_gamelog(team: str, year: int):
-    url = BASE_URL.format(team=team.lower(), year=year)
+    options = Options()
+    options.add_argument("--headless=new")
 
-    async with httpx.AsyncClient() as client:
-        res = await client.get(url)
-        res.raise_for_status()
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()),
+        options=options,
+    )
 
-    # Convert CSV text to a file-like object for csv.DictReader
-    csv_content = StringIO(res.text)
-    reader = csv.DictReader(csv_content)
+    url = f"https://www.pro-football-reference.com/teams/{team.lower()}/{year}.htm"
+    driver.get(url)
+    time.sleep(1)
 
-    games = []
+    # Scroll to the Schedule section
+    section = driver.find_element(
+        By.XPATH,
+        "//h2[contains(text(), 'Schedule')]/parent::div"
+    )
+    driver.execute_script("arguments[0].scrollIntoView(true);", section)
+    time.sleep(1)
 
-    for row in reader:
-        # Skip future weeks with no points
-        if row.get("Pts") == "":
-            continue
+    # Click "Share & more"
+    share = section.find_element(
+        By.XPATH, ".//li[contains(@class, 'hasmore')]/span[contains(text(),'Share')]"
+    )
+    share.click()
+    time.sleep(0.4)
 
-        game = {
-            "team": team.upper(),
-            "week": int(row["Week"]),
-            "date": row["Date"],
-            "opponent": row["Opp"],
-            "result": row["Result"],
-            "team_points": int(row["Pts"]) if row["Pts"] else None,
-            "opp_points": int(row["Pts Allowed"]) if row["Pts Allowed"] else None,
-            "team_total_yards": int(row["Tot Yds"]) if row["Tot Yds"] else None,
-            "opp_total_yards": int(row["Tot Yds Allowed"]) if row["Tot Yds Allowed"] else None,
-            "turnovers": int(row["TO"]) if row["TO"] else None
-        }
+    # Click "Get as Excel Workbook"
+    excel_btn = section.find_element(
+        By.XPATH, ".//button[contains(text(),'Get as Excel Workbook')]"
+    )
+    excel_btn.click()
+    time.sleep(1)
 
-        games.append(game)
+    # Extract Excel bytes from injected <a id="dlink">
+    excel_bytes = extract_excel_bytes_from_dlink(driver)
+    print("=== FIRST 200 BYTES ===")
+    print(excel_bytes[:200])
+    print("=======================")
 
-    return games
+    driver.quit()
+
+    # Parse direct bytes into Python objects
+    return parse_xlsx_to_games(excel_bytes, team)

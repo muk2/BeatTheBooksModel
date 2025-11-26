@@ -22,4 +22,4 @@ async def scrape_data(team: str, year: int):
     """
 
     data = await scrape_service.download_team_gamelog(team, year)
-    return {"team": team, "year": year, "games": data}
+    return data
