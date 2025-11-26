@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+# FastAPI specific
+.env
+db.sqlite3 # Or other database files if applicable
+# IDE specific
+.vscode/
+.idea/
+# Test/coverage
+.pytest_cache/
+.coverage
+htmlcov/
+# Build artifacts
+dist/
+build/
+*.egg-info/
