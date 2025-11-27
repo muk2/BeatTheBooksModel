@@ -3,11 +3,16 @@ import base64
 import pandas as pd
 import numpy as np
 from io import StringIO
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from dtos.team_game_dto import TeamGameCreate
+from repositories.team_game_repo import TeamGameRepository
+from core.database import SessionLocal
+
 
 def flatten_pfr_columns(df: pd.DataFrame):
     """Flatten MultiIndex columns from PFR exports cleanly."""
@@ -77,6 +82,8 @@ def parse_xlsx_to_games(excel_bytes: bytes, team: str):
             "week": int(row.get("Week", row.get("Week_", None))) if not pd.isna(row.get("Week", row.get("Week_", None))) else None,
             "day": row.get("Day", row.get("Day_", None)),
             "date": row.get("Date", row.get("Date_", None)),
+            "time": row.get("Unnamed: 3_level_1"),
+            "result": row.get("Unnamed: 5_level_1"),
             "opponent": row.get("Opp", row.get("Opp_", None)),
             "location": "",  # '@' marks away if needed
             "team_score": row.get("Tm", row.get("Tm_", None)),
@@ -111,6 +118,66 @@ def extract_excel_bytes_from_dlink(driver):
     excel_bytes = base64.b64decode(b64data)
 
     return excel_bytes
+
+def map_scraped_to_model(scraped: dict, season: int) -> TeamGameCreate:
+    # ---- DATE PARSING ----
+    date_val = None
+    raw_date = scraped.get("date")
+
+    if raw_date:
+        try:
+            date_val = datetime.strptime(f"{raw_date} {season}", "%B %d %Y").date()
+        except:
+            date_val = None
+
+    team = scraped["team"]
+    opp  = scraped.get("opponent")
+    result = scraped.get("result")
+
+    # ---- WINNER / LOSER LOGIC ----
+    if result == "W":
+        winner = team
+        loser = opp
+        pts_w = scraped.get("team_score")
+        pts_l = scraped.get("opp_score")
+        yds_w = scraped.get("tot_yards_for")
+        yds_l = scraped.get("tot_yards_against")
+        to_w  = scraped.get("turnovers")
+        to_l  = None
+
+    elif result == "L":
+        winner = opp
+        loser = team
+        pts_w = scraped.get("opp_score")
+        pts_l = scraped.get("team_score")
+        yds_w = scraped.get("tot_yards_against")
+        yds_l = scraped.get("tot_yards_for")
+        to_w  = None
+        to_l  = scraped.get("turnovers")
+
+    else:
+        # Not a real game (bye week, canceled, missing result)
+        winner = loser = None
+        pts_w = pts_l = yds_w = yds_l = to_w = to_l = None
+
+    # ---- RETURN DTO ----
+    return TeamGameCreate(
+        team_abbr=team,
+        season=season,
+        week=scraped.get("week"),
+        day=scraped.get("day"),
+        game_date=date_val,
+        game_time=scraped.get("time"),
+
+        winner=winner,
+        loser=loser,
+        pts_w=pts_w,
+        pts_l=pts_l,
+        yds_w=yds_w,
+        to_w=to_w,
+        yds_l=yds_l,
+        to_l=to_l,
+    )
 
 
 async def download_team_gamelog(team: str, year: int):
@@ -158,3 +225,22 @@ async def download_team_gamelog(team: str, year: int):
 
     # Parse direct bytes into Python objects
     return parse_xlsx_to_games(excel_bytes, team)
+
+async def scrape_and_store(team: str, year: int):
+    db = SessionLocal()
+
+    try:
+        scraped_games = await download_team_gamelog(team, year)
+        saved = []
+
+        for game in scraped_games:
+            model_obj = map_scraped_to_model(game, year)
+            saved_obj = TeamGameRepository.create_or_skip(db, model_obj)
+            saved.append(saved_obj)
+
+        return saved
+
+    finally:
+        db.close()
+
+

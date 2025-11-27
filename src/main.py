@@ -21,5 +21,5 @@ async def scrape_data(team: str, year: int):
         dict: A dictionary containing the scraping result.
     """
 
-    data = await scrape_service.download_team_gamelog(team, year)
+    data = await scrape_service.scrape_and_store(team, year)
     return data
