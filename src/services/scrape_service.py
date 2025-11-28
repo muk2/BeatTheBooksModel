@@ -77,9 +77,18 @@ def parse_xlsx_to_games(excel_bytes: bytes, team: str):
 
     games = []
     for _, row in df.iterrows():
+        raw_week = row.get("Week", row.get("Week_", None))
+        if raw_week is None or pd.isna(raw_week):
+            week_val = None
+        else:
+            try:
+                week_val = int(raw_week)
+            except (TypeError, ValueError):
+                week_val = None
+
         game = {
             "team": team.upper(),
-            "week": int(row.get("Week", row.get("Week_", None))) if not pd.isna(row.get("Week", row.get("Week_", None))) else None,
+            "week": week_val,
             "day": row.get("Day", row.get("Day_", None)),
             "date": row.get("Date", row.get("Date_", None)),
             "time": row.get("Unnamed: 3_level_1"),
@@ -164,7 +173,7 @@ def map_scraped_to_model(scraped: dict, season: int) -> TeamGameCreate:
     return TeamGameCreate(
         team_abbr=team,
         season=season,
-        week=scraped.get("week"),
+        week=scraped.get("week") or 0,
         day=scraped.get("day"),
         game_date=date_val,
         game_time=scraped.get("time"),
