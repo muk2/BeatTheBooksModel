@@ -1,0 +1,117 @@
+How to create a table (this isn't the create statement for the table in our db I just grabbed an example):
+
+CREATE TABLE team_games (
+    game_id SERIAL PRIMARY KEY,
+    game_date DATE NOT NULL,
+    winner VARCHAR(50) NOT NULL,
+    loser VARCHAR(50) NOT NULL,
+    winner_score INT NOT NULL,
+    loser_score INT NOT NULL,
+    location VARCHAR(100)
+);
+
+How to select:
+
+SELECT * FROM team_games;
+
+Note: the * causes the query to select all columns in the table so use * if you want to see all of the data in the entire table
+If you want to only select 1 column or a few columns:
+
+SELECT winner
+FROM team_games;
+
+SELECT winner, loser
+FROM team_games;
+
+Conditions in select statements (Where clauses):
+When we want to filter the data to display what we want it to, we need to use where clauses
+
+Take this query below
+SELECT game_date
+FROM team_games;
+
+Say we want to display each date that the bills won the game - we have a column for the winner of the game and the loser of the game - we can use that column to filter the results so that it only show's the games the bills won
+
+SELECT game_date
+FROM team_games
+WHERE winner = 'BUF';
+
+Say we want to track multiple winners:
+
+SELECT game_date
+FROM team_games
+WHERE winner IN ('BUF', 'NE', 'MIA');
+
+On top of where clauses we can order how the query is displayed:
+
+We can do this using order by - the below example show's Buffalo wins from oldest to newest
+
+SELECT game_date
+FROM team_games
+WHERE winner = 'BUF'
+ORDER BY game_date ASC
+
+We can also limit the amount of records that get displayed:
+In regular sql we usually use a command to get the top x amount of records
+It's usually something like
+
+SELECT TOP 1 *
+FROM team_games;
+
+In PSQL that command doesn't exist but there is a workaround/alternate command:
+
+SELECT *
+FROM team_games
+LIMIT 1;
+
+LIMIT does as you'd expect, it limits the number of records that can be shown - working pretty much the same as TOP 1 in regular sql
+
+Using everything we can create a select statement that gets the latest game the bills won:
+
+SELECT game_date
+FROM team_games
+WHERE winner = 'BUF'
+ORDER BY game_date DESC
+LIMIT 1;
+
+We can also make things case sensitive:
+
+SELECT game_date
+FROM team_games
+WHERE LOWER(winner) = 'buf';
+
+We can also join tables together - though there's a few diofferent types of joins and how they merge the tables together:
+*will get to these explanations eventually
+
+Creating a view:
+
+Think of a view as a saved select statment - asny select statement can be saved as a view as you add the select statement after the create view line
+
+CREATE VIEW kame_vision AS
+SELECT winner || ' vs. ' || loser AS game_title, game_date
+FROM team_games
+WHERE winner = 'BUF';
+
+To select the view you just have to select it like you are selecting a table:
+
+SELECT * FROM kame_vision;
+
+Stored procedures:
+
+Stored procedures are pretty much the same as they are in regular sql - the one difference from psql and the sql I use (T-sql) is that instead of 'create or alter procedure' it starts with 'create or replace procedure' and it pretty much works the same
+
+CREATE OR REPLACE PROCEDURE log_game_result(winner text, loser text)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO team_games (winner, loser, game_date)
+    VALUES (winner, loser, CURRENT_DATE);
+END;
+$$;
+
+
+To call the procedure you'd do something like this:
+
+CALL log_game_result('BUF', 'NE');
+
+Note: If we ever need to use stored procedures, it might be easier to save stored procedures in .sql files in the git repo as it'll be easier to collaborate and we can still automate stuff with migration tools
