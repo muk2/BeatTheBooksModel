@@ -1,3 +1,5 @@
+Joining the db - put this in your terminal
+psql 'postgresql://neondb_owner:npg_9bsVixcUeu3E@ep-purple-glade-adlsv7d9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
 How to create a table (this isn't the create statement for the table in our db I just grabbed an example):
 
 CREATE TABLE team_games (
@@ -9,6 +11,12 @@ CREATE TABLE team_games (
     loser_score INT NOT NULL,
     location VARCHAR(100)
 );
+How to drop/delete a table:
+
+DROP TABLE orders;
+DROP TABLE IF EXISTS archived_orders;
+DROP DATABASE my_database; (don't do this kamesh)
+
 
 How to select:
 
@@ -49,7 +57,7 @@ We can do this using order by - the below example show's Buffalo wins from oldes
 SELECT game_date
 FROM team_games
 WHERE winner = 'BUF'
-ORDER BY game_date ASC
+ORDER BY game_date ASC;
 
 We can also limit the amount of records that get displayed:
 In regular sql we usually use a command to get the top x amount of records
@@ -96,6 +104,71 @@ To select the view you just have to select it like you are selecting a table:
 
 SELECT * FROM kame_vision;
 
+Editing a view:
+
+CREATE OR REPLACE VIEW my_view AS
+SELECT column1, column2, column3
+FROM my_table
+WHERE order_date >= '2025-01-01'
+
+Dropping/deleting a view:
+
+DROP VIEW my_view;
+
+Insert statements:
+When you want to manually put data in a table you would use an insert into statement -  just put the table you want to insert into, list the columns in parentheses and make sure each vlaue is divided by a command
+Do the same with the corresponding values in the exact order you listed the commas
+
+INSERT INTO team_games (winner, loser, game_date)
+    VALUES (winner, loser, CURRENT_DATE);
+
+You can also insert select statements as well
+
+INSERT INTO target_table (column1, column2, column3)
+SELECT columnA, columnB, columnC
+FROM source_table
+WHERE some_condition;
+
+Update statements - to change an existing record:
+
+UPDATE orders
+SET status = 'archived'
+WHERE order_date < '2025-01-01';
+
+And updating records that fulfill a certain condition
+
+UPDATE orders o
+SET order_date = a.order_date
+FROM archived_orders a
+WHERE o.order_id = a.order_id;
+
+Upserting - this inserts any records and updates any existing record that may already be in the table:
+
+ex: lets say you have an order table with order_id and order_amount and lets say we have a record where the order_id is 1 and the amount is x - a new order (order_id = 2) comes in and an update to order 1 comes in as well - this would add the new record to the table and update order 1 to the new amount
+this is good for keeping data up to date if automated but is also useful when you want to insert stuff amd update old records without writing 10 extra lines of sql
+The syntax looks follows:
+
+INSERT INTO table_name (column1, column2, column3)
+VALUES (value1, value2, value3)
+ON CONFLICT (unique_column)
+DO UPDATE SET
+    column2 = EXCLUDED.column2,
+    column3 = EXCLUDED.column3;
+
+INSERT INTO orders (order_id, customer_id, status, order_date)
+VALUES (101, 1, 'completed', '2025-12-02')
+ON CONFLICT (order_id)
+DO UPDATE SET
+    status = EXCLUDED.status,
+    order_date = EXCLUDED.order_date;
+
+INSERT INTO sales_summary (customer_id, total_orders)
+VALUES (1, 1)
+ON CONFLICT (customer_id)
+DO UPDATE SET
+    total_orders = sales_summary.total_orders + 1;
+
+
 Stored procedures:
 
 Stored procedures are pretty much the same as they are in regular sql - the one difference from psql and the sql I use (T-sql) is that instead of 'create or alter procedure' it starts with 'create or replace procedure' and it pretty much works the same
@@ -115,3 +188,123 @@ To call the procedure you'd do something like this:
 CALL log_game_result('BUF', 'NE');
 
 Note: If we ever need to use stored procedures, it might be easier to save stored procedures in .sql files in the git repo as it'll be easier to collaborate and we can still automate stuff with migration tools
+Using the terminal is good to make on the fly changes but it's harder to collaborate as the code isn't stored in actual files
+
+Functions - kind of like a mini stored procedure that always sends backa value - good for on the fly calculations in sql:
+*Create a function
+CREATE FUNCTION calculate_tax(amount NUMERIC, tax_rate NUMERIC)
+RETURNS NUMERIC AS $$
+BEGIN
+    RETURN amount * tax_rate;
+END;
+$$ LANGUAGE plpgsql;
+
+*Altering a function
+CREATE OR REPLACE FUNCTION calculate_tax(amount NUMERIC, tax_rate NUMERIC)
+RETURNS NUMERIC AS $$
+BEGIN
+    RETURN ROUND(amount * tax_rate, 2);
+END;
+$$ LANGUAGE plpgsql;
+
+*Dropping a function
+DROP FUNCTION calculate_tax(NUMERIC, NUMERIC);
+DROP FUNCTION IF EXISTS calculate_tax(NUMERIC, NUMERIC);
+
+
+PSQL commands:
+
+neondb-> \dt 
+                 List of tables
+ Schema |      Name      | Type  |    Owner     
+--------+----------------+-------+--------------
+ public | coaches        | table | neondb_owner
+ public | players        | table | neondb_owner
+ public | team_games     | table | neondb_owner
+ public | team_standings | table | neondb_owner
+(4 rows)
+
+neondb-> \conninfo
+                               Connection Information
+      Parameter       |                            Value
+----------------------+-------------------------------------------------------------
+ Database             | neondb
+ Client User          | neondb_owner
+ Host                 | ep-purple-glade-adlsv7d9-pooler.c-2.us-east-1.aws.neon.tech
+ Host Address         | 3.218.140.61
+ Server Port          | 5432
+ Options              |
+ Protocol Version     | 3.0
+ Password Used        | true
+ GSSAPI Authenticated | false
+ Backend PID          | -1517388368
+ SSL Connection       | true
+ SSL Library          | OpenSSL
+ SSL Protocol         | TLSv1.3
+ SSL Key Bits         | 256
+ SSL Cipher           | TLS_AES_256_GCM_SHA384
+ SSL Compression      | false
+ ALPN                 | postgresql
+ Superuser            | off
+ Hot Standby          | off
+(19 rows)
+
+Exit psql db-
+\q
+
+neondb-> \dn 
+      List of schemas
+  Name  |       Owner
+--------+-------------------
+ public | pg_database_owner
+(1 row)
+
+
+neondb-> \dv 
+               List of views
+ Schema |    Name     | Type |    Owner
+--------+-------------+------+--------------
+ public | kame_vision | view | neondb_owner
+(1 row)
+
+neondb-> \df 
+                       List of functions
+ Schema | Name | Result data type | Argument data types | Type
+--------+------+------------------+---------------------+------
+(0 rows)
+
+*this one describes a table (columns, types, constraints)
+neondb-> \d coaches  
+                                      Table "public.coaches"
+   Column    |         Type          | Collation | Nullable |               Default
+-------------+-----------------------+-----------+----------+-------------------------------------
+ id          | integer               |           | not null | nextval('coaches_id_seq'::regclass)
+ season      | integer               |           | not null |
+ coach_name  | character varying(64) |           | not null |
+ team_abbr   | character varying(8)  |           | not null |
+ reg_games   | integer               |           |          |
+ reg_wins    | integer               |           |          |
+ reg_losses  | integer               |           |          |
+ reg_ties    | integer               |           |          |
+ post_games  | integer               |           |          |
+ post_wins   | integer               |           |          |
+ post_losses | integer               |           |          |
+ post_ties   | integer               |           |          |
+Indexes:
+    "coaches_pkey" PRIMARY KEY, btree (id)
+    "uniq_coach_team_season" UNIQUE CONSTRAINT, btree (season, coach_name, team_abbr)
+
+Other PSQL commands:
+\l → List all databases.
+
+\c dbname → Connect to another database.
+
+\x → Toggle expanded output (better for wide tables).
+
+\timing → Show how long each query takes.
+
+\watch N → Re‑run the last query every N seconds.
+
+\du → List all roles/users.
+
+\dg → List all groups.
