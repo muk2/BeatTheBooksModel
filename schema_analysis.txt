@@ -1,0 +1,66 @@
+Used /d tablename for each table in the db + /di for the all of the indexes as well and put it in copilot for analysis:
+
+
+Schema Overview
+coaches
+Primary key: id
+
+Unique constraint: (season, coach_name, team_abbr)
+
+Columns: season, coach_name, team_abbr, reg/post season stats (games, wins, losses, ties)
+
+Purpose: Tracks coaching records by season and team.
+
+players
+Primary key: id
+
+Columns: player_name, age, position, games, games_started
+
+Purpose: Stores player roster and basic stats.
+
+team_games
+Primary key: id
+
+Unique constraint: (team_abbr, season, week)
+
+Columns: team_abbr, season, week, day, game_date, game_time, winner/loser, points, yards, turnovers
+
+Purpose: Records individual game results and stats.
+
+team_standings
+Primary key: id
+
+Unique constraint: (season, team_name)
+
+Columns: season, conference, division, team_name, playoff/division flags, win-loss-tie record, percentages, point differential, strength of schedule, rating system metrics
+
+Purpose: Tracks overall team performance and standings.
+
+🔑 Indexes
+coaches_pkey: PK on id
+
+players_pkey: PK on id
+
+team_games_pkey: PK on id
+
+team_standings_pkey: PK on id
+
+uniq_coach_team_season: Unique (season, coach_name, team_abbr)
+
+uniq_team_season: Unique (season, team_name)
+
+unique_game: Unique (team_abbr, season, week)
+
+⚡ Next Steps for Analysis
+Relationships: Right now, no explicit foreign keys are defined. If you want relational integrity:
+
+coaches.team_abbr ↔ team_standings.team_name (or abbreviation if normalized).
+
+players could link to team_games or team_standings via team reference.
+
+Documentation: You can export the schema with:
+
+pg_dump --schema-only -d your_db > schema.sql
+That gives you a reproducible snapshot for your repo.
+
+Visualization: Tools like pgAdmin or schemaspy can generate ER diagrams automatically.
